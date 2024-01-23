@@ -1,0 +1,283 @@
+---
+title: "Pre-processing Text"
+subtitle: "Introduction to Text as Data"
+author: "Amber Boydstun & Cory Struthers"
+date: "January 25-27, 2024"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  html_notebook:
+    code_folding: show
+    highlight: tango
+    theme: united
+    toc: yes
+    df_print: paged
+---
+
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "~/Dropbox/text-as-data-JUST-CORY-AND-AMBER/modules_2024/data/")
+```
+
+### Introduction
+
+After data has been gathered or collected, we load the text data with the corresponding metadata. We then review patterns. Patterns in the text can provide useful context about the types of analysis choices that may be (in)appropriate based on the data generation process (DGP). 
+
+In this module, we'll need the following packages:
+
+``` {r, results = 'hide', message = FALSE}
+
+# Load packages
+require(tidyverse)
+require(readxl)
+require(quanteda)
+library(quanteda.textstats)
+
+# Set working directory
+setwd("~/Dropbox/text-as-data-JUST-CORY-AND-AMBER/modules_2024/data/")
+getwd() # view working directory
+
+```
+
+First we upload the raw data, which sometimes includes metadata about the text itself (e.g., the speaker of the text, source of the text).
+
+``` {r, message = FALSE}
+
+# Load data and with doc_id_keep
+news_data = read_xlsx("sample_news_1995-2017.xlsx") 
+
+# Examine metadata
+names(news_data)
+
+# Read text
+news_data$text[1]
+
+# Check out source
+news_data$Source[1]
+```
+
+### Create a corpus
+
+A corpus object saves text (character strings) and variables about the documents (metadata). 
+ 
+A corpus saves text strings in a format that can be analyzed with text-as-data tools and pairs text with document-level variables (metadata) that tell us something about the text. Almost always, we're interested in understanding differences in the text according to one or more document-level variables. These are called "docvars" (`docvars`) in `quanteda`.
+
+We typically create a corpus from a data file that includes both text and docvars. Every corpus includes a "doc_id", which is either assigned by default in the format "text#" or by the researcher using the `docid_field` option in the `corpus` function. 
+
+```{r, message = FALSE}
+
+# Creating corpus
+news_corp = corpus(news_data, text_field = "text")
+print(news_corp)
+    # Confirming: 1,000 documents with 8 docvars
+
+```
+
+We can extract metadata using `docvars`, which stores the metadata in the columns of the text file we transformed to a corpus. This is useful in a workflow where the corpus has been saved as an RDS file and we no longer rely on the original dataframe. 
+
+We can access docvars using the `$` operator, like we would for a dataframe. 
+
+```{r, message = FALSE}
+
+# View unique sources in bills corpus 
+unique(news_corp$Source)
+
+# Grab docvars
+metadata_news = docvars(news_corp)
+
+```
+
+We can create docvars in the corpus as well.
+
+```{r, message = FALSE}
+
+# Create a docvar for the corpus
+news_corp$country = as.character("United States")
+head(news_corp$country, 10)
+
+```
+
+There are a number of ways to transform the corpus. First, we can subset the corpus based on docvars. 
+
+
+```{r, message = FALSE}
+
+# Subset to Washington Post &  NY Times only
+news_corp_wp_nyt = corpus_subset(news_corp, Source %in% c("new york times", "washington post"))
+ndoc(news_corp_wp_nyt)
+
+```
+
+Second, we can reshape the corpus into different units: documents, paragraphs, and sentences. 
+
+```{r, message = FALSE}
+
+# Reshape to sentences
+news_corp_wp_nyt_paragraphs = corpus_reshape(news_corp_wp_nyt, to = "paragraphs")
+ndoc(news_corp_wp_nyt_paragraphs)
+
+# Docvars now expanded
+docvars(news_corp_wp_nyt_paragraphs)
+
+```
+
+Third, we can split up segments of text based on patterns, including exact matches or regular expressions. Segmenting is often needed to split a document based on a speaker, in the case of a transcript. This is a really powerful feature of `quanteda` because it does the string splitting for you. All docvars are retained during these transformations.
+
+```{r, message = FALSE}
+
+# Split at periods (into sentences) -- an example!
+news_corp_sentences = corpus_segment(news_corp, pattern = ".", valuetype = "fixed", 
+                            extract_pattern = TRUE, pattern_position = "before")
+ndoc(news_corp_sentences)
+head(news_corp_sentences)
+
+```
+
+The corpora are now ready for analysis. Like an R dataframe, we can save the corpora as an RDS object to avoid repeating these steps in a workflow.
+
+```{r, message = FALSE}
+
+saveRDS(news_corp, "news_corp.RDS")
+
+```
+
+\
+
+### Tokenize corpus and reduce complexity
+
+Most text analysis methods require tokenization of the corpus. Tokenization breaks a corpus into vectors of words, n-grams, or sentences. From a programming and English-language perspective, tokenization is simply splitting the text up by white space. 
+
+Tokenization is one of the most critical steps in pre-processing because the researcher makes a number of decisions that will affect analysis outcomes. 
+
+These decisions include:
+
+* **Removing punctuation, URLs, symbols, numbers**: For many research questions, researchers are often not interested in how many commas, apostrophes, periods, symbols, URLS, or numbers appear within the text, and thus choose to delete them.
+
+* **Lowercasing**: Replace all capital letters with lowercase letters. The idea is that the word "This" is no different than "this" for most projects and research questions.
+
+* **Removing stopwords**: Stop words are common words used across documents that do not give much information about the task at hand. In English, common words such as "and", "the", and "that" may be removed from the documents to reduce the size and complexity of the feature set.
+
+* **Generating n-grams**: We can incorporate elements of positional analysis by identifying *n-grams* or multi-word expressions (phrases). Analysts can identify specific n-grams to capture in a tokens document or convert the whole tokens object to n-grams (n-grams of 2 and 3 are most common). N-grams are important for BOW approaches that would otherwise ignore the conceptual link between compound words like "death" and "penalty". Collocation analysis can be used to identify common n-grams in the text.
+
+* **Stemming**: Many words and phrases are conjugated but hold the same meaning. For example, in most contexts, the word "immigrant" has the same meaning as "immigrants" or "immigration". Asterisks match zero or more characters in `quanteda`. For the concept "immigrant", for example, we can use "immig*". We can also use `tokens_wordstem` in `quanteda` to stem all words.
+
+* **Maintaining document length**: Sometimes we need to retain information on terms (tokens) we remove, for example when applying methods that utilize information on word ordering. `quanteda` offers the `padding` option, which is defaulted to `FALSE`. When true, an empty string will remain where removed tokens previously existed.
+
+`quanteda` provides all the functions we need to reduce the complexity of our text data following the above steps, using variations of `tokens()` from `quanteda package`.
+
+
+```{r, message = FALSE}
+
+# Tokenize with no adjustments
+toks_news = tokens(news_corp)
+print(toks_news[1:2])
+
+# Use tokens_remove to drop stopwords
+toks_news_subs = tokens_remove(toks_news, stopwords("english"))
+print(toks_news_subs[1:2])
+
+# Stem words
+toks_news_subs = tokens_wordstem(toks_news_subs)
+
+# We can pipe functions in one ordered step
+toks_news_subs = tokens(news_corp, 
+                        remove_url = TRUE, 
+                        remove_punct = TRUE, 
+                        remove_symbols = TRUE, 
+                        remove_numbers = TRUE) %>% 
+    tokens_select(pattern = stopwords("en"), selection = "remove") %>% # option to "keep"
+    tokens_tolower() %>% # note to_lower here
+    tokens_wordstem()
+print(toks_news_subs[1:2])
+
+```
+
+Oftentimes, words only meaningfully represent topics, sentiment, or other latent concepts when put together. For example, "death" on its own has an entirely different meaning than "death penalty". These phrases are called "n-grams" or "compound tokens" and must be included in the process of tokenization or will otherwise not be captured in the subsequent steps of analysis.
+
+There are two approaches to dealing with phrases. One option is using `tokens_ngrams()`, where the user specifies the number of words that should be included in each token. This approach transforms the entire corpus into phrases. 
+
+```{r, message = FALSE}
+
+# Convert tokens to n-grams using first approach
+toks_news_ngrams = tokens_ngrams(toks_news_subs, n = 2:3) # specifying 2 and 3 n-grams
+head(toks_news_ngrams[[1]], 15)
+head(toks_news_ngrams[[2]], 15)
+
+```
+
+While both efficient and useful when the user is uncertain about the scope of meaningful phrases, the approach also returns a very large tokens object without necessarily adding much information. 
+
+Alternatively, the user can apply `tokens_compund` to capture n-grams (certain phrases) more selectively. 
+
+```{r, message = FALSE}
+
+# Use token_compound to add n-grams selectively - remember to use stem terms if you've stemmed words
+toks_news_comp = tokens_compound(toks_news_subs, 
+                                 pattern = phrase(c("climat *", "death penalti", 
+                                                    "border fenc", "histor site")))
+print(toks_news_comp[1:2])
+
+```
+
+Finally, how might we identify important compound tokens when we don't know what they are? 
+
+Collocation analysis, which identifies words that are commonly seen together in a text, is an efficient way to locate common multi-word expressions.  
+
+Analysts can search for collocations with certain attributes, such as proper nouns (with capitalized words), or search for collocations more liberally. `textstat_collocations` can be used on tokens or corpus objects.
+
+```{r, message = FALSE}
+
+# Find all collocations 
+news_corp_coll = textstat_collocations(toks_news, size = 2:3, min_count = 10)
+news_corp_coll
+```
+
+Not quite what we want, right? We need to remove stopwords.
+
+```{r, message = FALSE}
+
+# Remove stopwords
+toks_news_no_stop = tokens_select(toks_news, pattern = stopwords("en"), 
+                               selection = "remove", padding=TRUE) %>% # padding to preserve sentence structure
+                    tokens_tolower()
+
+# Let's try again
+news_corp_coll_no_stop = textstat_collocations(toks_news_no_stop, size = 2:3, min_count = 10)
+news_corp_coll_no_stop
+
+```
+
+Finally, we can add collocations to the tokens object, and remove unnecessary padding we preserved in the initial core tokens object.
+
+```{r, message = FALSE}
+
+# Add to tokens document
+news_toks_all =  tokens_compound(toks_news_no_stop, news_corp_coll_no_stop, concatenator = " ") %>%
+    tokens_select(padding=FALSE) %>% # remove padding
+    tokens_wordstem # stem words after adding collocations
+tail(news_toks_all)
+
+```
+
+
+\
+
+### Homework
+
+---
+
+#### Discussion Question: 
+When might collocation analysis be problematic on a tokens object?
+
+
+#### Coding Question:
+1. Make a corpus for the twitter immigration data ("sample_immigration_tweets_2013-2017.csv"). Save the corpus as an RDS object.
+2. Subset the corpus to years 2016-2017.
+3. Say we want to identify the most frequently used terms/concepts in immigration twitter data during the change of presidential administrations. Tokenize the twitter corpus with this purpose in mind.
+
+
+
+
+
+
+
