@@ -112,7 +112,7 @@ Second, we can reshape the corpus into different units: documents, paragraphs, a
 
 ```{r, message = FALSE}
 
-# Reshape to sentences
+# Reshape to paragraphs
 news_corp_wp_nyt_paragraphs = corpus_reshape(news_corp_wp_nyt, to = "paragraphs")
 ndoc(news_corp_wp_nyt_paragraphs)
 
@@ -227,7 +227,7 @@ Analysts can search for collocations with certain attributes, such as proper nou
 
 ```{r, message = FALSE}
 
-# Find all collocations 
+# Find all collocations in original tokens object
 news_corp_coll = textstat_collocations(toks_news, size = 2:3, min_count = 10)
 news_corp_coll
 ```
@@ -236,10 +236,15 @@ Not quite what we want, right? We need to remove stopwords.
 
 ```{r, message = FALSE}
 
-# Remove stopwords
-toks_news_no_stop = tokens_select(toks_news, pattern = stopwords("en"), 
-                               selection = "remove", padding=TRUE) %>% # padding to preserve sentence structure
+# Re-make tokens object but this time remove stopwords and preserve padding (i.e. spaces, punctuation)
+toks_news_no_stop = tokens(news_corp, 
+                        remove_url = TRUE, 
+                        remove_punct = TRUE, 
+                        remove_symbols = TRUE, 
+                        remove_numbers = TRUE) %>% 
+  tokens_select(pattern = stopwords("en"),selection = "remove", padding=TRUE) %>% # add padding to preserve sentence structure
                     tokens_tolower()
+tail(toks_news_no_stop)
 
 # Let's try again
 news_corp_coll_no_stop = textstat_collocations(toks_news_no_stop, size = 2:3, min_count = 10)
@@ -247,7 +252,7 @@ news_corp_coll_no_stop
 
 ```
 
-Finally, we can add collocations to the tokens object, and remove unnecessary padding we preserved in the initial core tokens object.
+Finally, we can add collocations to the original tokens object (single n-grams), and remove unnecessary padding we preserved in the initial core tokens object.
 
 ```{r, message = FALSE}
 
